@@ -1,0 +1,404 @@
+---
+# ============================================================================
+# CONFIGURATION - Edit these values for your VM
+# ============================================================================
+- name: Add VM to inventory
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    # VM Connection Settings - EDIT THESE VALUES
+    vm_ip_address: "192.168.64.3"  # Change to your VM's IP address
+    vm_ssh_user: "root"             # SSH username (root)
+    vm_ssh_port: 22                 # SSH port (usually 22)
+    vm_ssh_password: "TheBetaSantaStore05!"  # SSH password (hardcoded)
+    
+    # Database Settings
+    db_root_password: "TheBetaSantaStore05!"
+    base_ssh_users: ["root"]
+    users_json_path: "./users_to_create.json"
+  
+  tasks:
+    - name: Check if sshpass is installed (required for password auth)
+      command: which sshpass
+      register: sshpass_check
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+      run_once: true
+
+    - name: Detect macOS
+      command: uname -s
+      register: os_check
+      changed_when: false
+      delegate_to: localhost
+      run_once: true
+
+    - name: Install sshpass via Homebrew if missing (macOS)
+      homebrew:
+        name: hudochenkov/sshpass/sshpass
+        state: present
+      delegate_to: localhost
+      run_once: true
+      when: 
+        - os_check.stdout == "Darwin"
+        - sshpass_check.rc != 0
+      ignore_errors: yes
+
+    - name: Fail if sshpass not available
+      fail:
+        msg: "sshpass is required for password authentication. Install it with: brew install hudochenkov/sshpass/sshpass"
+      when: sshpass_check.rc != 0
+
+    - name: Add VM host dynamically with password authentication
+      add_host:
+        name: "{{ vm_ip_address }}"
+        ansible_host: "{{ vm_ip_address }}"
+        ansible_user: "{{ vm_ssh_user }}"
+        ansible_port: "{{ vm_ssh_port }}"
+        ansible_ssh_pass: "{{ vm_ssh_password }}"
+        ansible_connection: ssh
+        ansible_become: yes
+        ansible_become_method: sudo
+        ansible_become_pass: "{{ vm_ssh_password }}"
+        groups: db_servers
+        db_root_password: "{{ db_root_password }}"
+        base_ssh_users: "{{ base_ssh_users }}"
+        users_json_path: "{{ users_json_path }}"
+
+- name: Configure Rocky Linux VM as Database Server
+  hosts: db_servers
+  become: yes
+  vars:
+    db_root_password: "{{ hostvars[groups['db_servers'][0]]['db_root_password'] | default('TheBetaSantaStore05!') }}"
+    base_ssh_users: "{{ hostvars[groups['db_servers'][0]]['base_ssh_users'] | default(['root']) }}"
+    users_json_path: "{{ hostvars[groups['db_servers'][0]]['users_json_path'] | default('./users_to_create.json') }}"
+  
+  tasks:
+    
+    - name: Update package cache
+      dnf:
+        update_cache: yes
+      timeout: 300  # 5 minute timeout
+      register: dnf_cache_result
+
+    - name: Show package cache update status
+      debug:
+        msg: "Package cache {{ 'updated' if dnf_cache_result.changed else 'already up to date' }}"
+    
+    - name: Update all packages (this may take 10-30 minutes)
+      dnf:
+        name: "*"
+        state: latest
+      timeout: 1800  # 30 minute timeout
+      register: dnf_update_result
+      failed_when: false  # Don't fail if update times out
+
+    - name: Show package update status
+      debug:
+        msg: "Packages {{ 'updated' if dnf_update_result.changed else 'already up to date' }}. {{ dnf_update_result.changed | default(0) }} packages changed."
+
+    - name: Install MariaDB server and client
+      dnf:
+        name:
+          - mariadb-server
+          - mariadb
+        state: present
+
+    - name: Install Python 3 and MySQL client library
+      dnf:
+        name:
+          - python3
+          - python3-pip
+          - python3-PyMySQL
+        state: present
+
+    - name: Start and enable MariaDB service
+      systemd:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: Wait for MariaDB to be ready
+      wait_for:
+        port: 3306
+        delay: 5
+        timeout: 30
+
+    - name: Check if server.cnf exists and is valid
+      stat:
+        path: /etc/my.cnf.d/server.cnf
+      register: server_cnf_stat
+
+    - name: Check if server.cnf has valid structure
+      command: grep -q "^\[mysqld\]" /etc/my.cnf.d/server.cnf
+      register: server_cnf_valid
+      failed_when: false
+      changed_when: false
+      when: server_cnf_stat.stat.exists
+
+    - name: Fix corrupted server.cnf file (remove if malformed)
+      file:
+        path: /etc/my.cnf.d/server.cnf
+        state: absent
+      when: server_cnf_stat.stat.exists and (server_cnf_valid.rc != 0 or server_cnf_stat.stat.size == 0)
+
+    - name: Ensure server.cnf has proper [mysqld] section
+      blockinfile:
+        path: /etc/my.cnf.d/server.cnf
+        block: |
+          [mysqld]
+          bind-address = 127.0.0.1
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        create: yes
+        backup: yes
+      notify: restart mariadb
+
+    - name: Remove any malformed bind-address lines outside [mysqld] section
+      lineinfile:
+        path: /etc/my.cnf.d/server.cnf
+        regexp: '^bind-address\s*='
+        state: absent
+      when: server_cnf_stat.stat.exists
+
+    - name: Restart MariaDB if config was fixed
+      systemd:
+        name: mariadb
+        state: restarted
+      when: server_cnf_stat.stat.exists and (server_cnf_valid.rc != 0 or server_cnf_stat.stat.size == 0)
+      register: mariadb_restarted
+
+    - name: Wait for MariaDB after restart
+      wait_for:
+        port: 3306
+        delay: 3
+        timeout: 30
+      when: mariadb_restarted.changed | default(false)
+
+    - name: Set MariaDB root password (method 1 - using mysql command)
+      command: mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ db_root_password }}'; FLUSH PRIVILEGES;"
+      register: root_password_set
+      changed_when: false
+      no_log: true
+      ignore_errors: yes
+
+    - name: Verify root password works with password auth
+      command: mysql -u root -p{{ db_root_password }} -e "SELECT 1;" 2>&1
+      register: root_password_verify
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Set MariaDB root password (method 2 - if method 1 failed)
+      shell: |
+        mysql -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('{{ db_root_password }}'); FLUSH PRIVILEGES;"
+      when: root_password_verify.rc != 0
+      register: root_password_retry
+      changed_when: false
+      no_log: true
+      ignore_errors: yes
+
+    - name: Enable unix_socket authentication for root (allows sudo mysql without password)
+      shell: |
+        mysql -u root -p{{ db_root_password }} -e "UPDATE mysql.user SET plugin='unix_socket' WHERE user='root' AND host='localhost'; FLUSH PRIVILEGES;"
+      when: root_password_verify.rc == 0 or root_password_retry.changed | default(false)
+      register: unix_socket_setup
+      changed_when: false
+      no_log: true
+      ignore_errors: yes
+
+    - name: Verify mysql works as root user (unix_socket)
+      command: mysql -e "SELECT USER(), @@hostname;" 2>&1
+      register: mysql_root_test
+      changed_when: false
+      failed_when: false
+
+    - name: Remove anonymous users
+      command: mysql -u root -p{{ db_root_password }} -e "DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;"
+      no_log: true
+      changed_when: false
+
+    - name: Remove test database
+      command: mysql -u root -p{{ db_root_password }} -e "DROP DATABASE IF EXISTS test;"
+      no_log: true
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Ensure root can only login from localhost
+      command: mysql -u root -p{{ db_root_password }} -e "DELETE FROM mysql.user WHERE User='root' AND Host='{{ item }}'; FLUSH PRIVILEGES;"
+      no_log: true
+      changed_when: false
+      loop:
+        - "%"
+        - "::1"
+      ignore_errors: yes
+
+    - name: Verify bind-address is set to 127.0.0.1
+      command: grep -E "^bind-address\s*=\s*127.0.0.1" /etc/my.cnf.d/server.cnf
+      register: bind_address_check
+      changed_when: false
+      failed_when: false
+
+    - name: Verify MariaDB is listening on localhost only
+      command: ss -tlnp | grep ":3306" | grep "127.0.0.1"
+      register: mariadb_bind_check
+      changed_when: false
+      failed_when: false
+
+    - name: Restart MariaDB if bind-address verification failed
+      systemd:
+        name: mariadb
+        state: restarted
+      when: bind_address_check.rc == 0 and mariadb_bind_check.rc != 0
+      notify: restart mariadb
+
+    - name: Read user data from JSON file
+      set_fact:
+        student_users: "{{ lookup('file', users_json_path) | from_json }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Create system users
+      ansible.builtin.user:
+        name: "{{ item.key }}"
+        password: "{{ item.value | password_hash('sha512') }}"
+        shell: /bin/bash
+        create_home: yes
+        state: present
+      with_dict: "{{ student_users }}"
+      ignore_errors: yes
+
+    - name: Create database and DB user
+      mysql_db:
+        login_user: root
+        login_password: "{{ db_root_password }}"
+        name: "{{ item.key }}"
+        state: present
+        login_host: localhost
+      with_dict: "{{ student_users }}"
+      register: db_creation_result
+
+    - name: Verify databases were created
+      command: mysql -u root -p{{ db_root_password }} -e "SHOW DATABASES LIKE '{{ item.key }}';"
+      register: db_verify
+      changed_when: false
+      failed_when: false
+      no_log: true
+      with_dict: "{{ student_users }}"
+
+    - name: Create MariaDB users with localhost access only
+      mysql_user:
+        login_user: root
+        login_password: "{{ db_root_password }}"
+        name: "{{ item.key }}"
+        password: "{{ item.value }}"
+        host: localhost
+        priv: "{{ item.key }}.*:ALL"
+        state: present
+        login_host: localhost
+      with_dict: "{{ student_users }}"
+      register: user_creation_result
+
+    - name: Verify MariaDB users were created
+      command: mysql -u root -p{{ db_root_password }} -e "SELECT user, host FROM mysql.user WHERE user='{{ item.key }}' AND host='localhost';"
+      register: user_verify
+      changed_when: false
+      failed_when: false
+      no_log: true
+      with_dict: "{{ student_users }}"
+
+    - name: Flush MySQL privileges
+      command: mysql -u root -p{{ db_root_password }} -e "FLUSH PRIVILEGES;"
+      changed_when: false
+      no_log: true
+
+    - name: Get all student usernames
+      set_fact:
+        student_usernames: "{{ student_users.keys() | list }}"
+
+    - name: Backup SSH config before modification
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: /etc/ssh/sshd_config.backup.ansible
+        remote_src: yes
+      changed_when: false
+
+    - name: Configure SSH AllowUsers
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^AllowUsers'
+        line: "AllowUsers {{ (base_ssh_users + student_usernames) | join(' ') }}"
+        validate: 'sshd -t -f %s'
+        backup: yes
+      register: ssh_config_result
+      notify: restart sshd
+
+    - name: Verify SSH config syntax
+      command: sshd -t -f /etc/ssh/sshd_config
+      register: ssh_config_verify
+      changed_when: false
+      failed_when: false
+
+    - name: Restore SSH config if syntax check failed
+      copy:
+        src: /etc/ssh/sshd_config.backup.ansible
+        dest: /etc/ssh/sshd_config
+        remote_src: yes
+      when: ssh_config_verify.rc != 0
+
+    - name: Ensure firewall allows SSH
+      firewalld:
+        port: "{{ ansible_port | default(22) }}/tcp"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Ensure firewall blocks MariaDB from external access
+      firewalld:
+        port: "3306/tcp"
+        permanent: yes
+        state: disabled
+        immediate: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Final verification - Test MariaDB root access
+      command: mysql -u root -p{{ db_root_password }} -e "SELECT 'MariaDB is working correctly' AS status;"
+      register: final_mariadb_test
+      changed_when: false
+      no_log: true
+
+    - name: Final verification - Test student user database access
+      command: mysql -u {{ item.key }} -p{{ item.value }} -e "USE {{ item.key }}; SELECT 'Database access works' AS status;"
+      register: final_user_test
+      changed_when: false
+      failed_when: false
+      no_log: true
+      with_dict: "{{ student_users }}"
+
+    - name: Display final status
+      debug:
+        msg: |
+          ========================================
+          Database Server Setup Complete!
+          ========================================
+          Host: {{ inventory_hostname }}
+          MariaDB Status: {{ 'OK' if final_mariadb_test.rc == 0 else 'FAILED - Check logs' }}
+          Student Users Created: {{ student_users.keys() | list | length }}
+          Databases Created: {{ student_users.keys() | list | length }}
+          ========================================
+          Next steps:
+          1. SSH into VM: ssh <user>@{{ inventory_hostname }}
+          2. Test student access: ssh student1@{{ inventory_hostname }}
+          3. Test database: mysql -u student1 -p
+
+  handlers:
+    - name: restart mariadb
+      systemd:
+        name: mariadb
+        state: restarted
+
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
