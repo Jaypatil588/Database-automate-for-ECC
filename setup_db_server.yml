@@ -175,15 +175,17 @@
         timeout: 30
       when: mariadb_restarted.changed | default(false)
 
-    - name: Set MariaDB root password (method 1 - using mysql command)
-      command: mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ db_root_password }}'; FLUSH PRIVILEGES;"
+    - name: Set MariaDB root password (method 1 - using mysql command with escaped password)
+      shell: |
+        mysql -e 'ALTER USER "root"@"localhost" IDENTIFIED BY "{{ db_root_password }}"; FLUSH PRIVILEGES;'
       register: root_password_set
       changed_when: false
       no_log: true
       ignore_errors: yes
 
     - name: Verify root password works with password auth
-      command: mysql -u root -p{{ db_root_password }} -e "SELECT 1;" 2>&1
+      shell: |
+        mysql -u root -p'{{ db_root_password }}' -e "SELECT 1;" 2>&1
       register: root_password_verify
       changed_when: false
       failed_when: false
@@ -191,17 +193,28 @@
 
     - name: Set MariaDB root password (method 2 - if method 1 failed)
       shell: |
-        mysql -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('{{ db_root_password }}'); FLUSH PRIVILEGES;"
+        mysql -e 'SET PASSWORD FOR "root"@"localhost" = PASSWORD("{{ db_root_password }}"); FLUSH PRIVILEGES;'
       when: root_password_verify.rc != 0
       register: root_password_retry
       changed_when: false
       no_log: true
       ignore_errors: yes
 
-    - name: Enable unix_socket authentication for root (allows sudo mysql without password)
+    - name: Enable unix_socket authentication for root (try mysql.global_priv first)
       shell: |
-        mysql -u root -p{{ db_root_password }} -e "UPDATE mysql.user SET plugin='unix_socket' WHERE user='root' AND host='localhost'; FLUSH PRIVILEGES;"
+        mysql -u root -p'{{ db_root_password }}' -e "UPDATE mysql.global_priv SET priv=json_set(priv, '$.plugin', 'unix_socket') WHERE User='root' AND Host='localhost'; FLUSH PRIVILEGES;" 2>&1
       when: root_password_verify.rc == 0 or root_password_retry.changed | default(false)
+      register: unix_socket_setup_global
+      changed_when: false
+      no_log: true
+      ignore_errors: yes
+
+    - name: Enable unix_socket authentication for root (fallback to mysql.user if global_priv failed)
+      shell: |
+        mysql -u root -p'{{ db_root_password }}' -e "UPDATE mysql.user SET plugin='unix_socket' WHERE user='root' AND host='localhost'; FLUSH PRIVILEGES;" 2>&1
+      when: 
+        - (root_password_verify.rc == 0 or root_password_retry.changed | default(false))
+        - unix_socket_setup_global.rc != 0
       register: unix_socket_setup
       changed_when: false
       no_log: true
