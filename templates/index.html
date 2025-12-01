@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 24px;
+            color: #212121;
+        }
+
+        .page-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .page-header {
+            margin-bottom: 32px;
+        }
+
+        .page-title {
+            font-size: 32px;
+            font-weight: 500;
+            color: #212121;
+            letter-spacing: -0.5px;
+        }
+
+        .page-subtitle {
+            font-size: 14px;
+            color: #757575;
+            margin-top: 8px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 24px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #fafafa;
+        }
+
+        .card-header h2 {
+            font-size: 20px;
+            font-weight: 500;
+            color: #212121;
+            margin: 0;
+        }
+
+        .card-content {
+            padding: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #424242;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="file"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            background: white;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        input[type="file"]:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #1976d2;
+            box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1);
+        }
+
+        textarea {
+            min-height: 120px;
+            font-family: "Courier New", monospace;
+            resize: vertical;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .form-row.full {
+            grid-template-columns: 1fr;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background-color: #1976d2;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #1565c0;
+        }
+
+        .btn-success {
+            background-color: #388e3c;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background-color: #2e7d32;
+        }
+
+        .btn-danger {
+            background-color: #d32f2f;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #c62828;
+        }
+
+        .btn-warning {
+            background-color: #f57c00;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background-color: #e65100;
+        }
+
+        .btn-info {
+            background-color: #0097a7;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background-color: #00838f;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        table th {
+            background-color: #fafafa;
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            color: #424242;
+            border-bottom: 2px solid #e0e0e0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        table td {
+            padding: 16px;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 14px;
+        }
+
+        table tr:hover {
+            background-color: #f5f5f5;
+        }
+
+        table tr.locked {
+            opacity: 0.6;
+            background-color: #ffebee;
+        }
+
+        .user-list {
+            list-style: none;
+            margin-top: 16px;
+        }
+
+        .user-list li {
+            background: #f5f5f5;
+            padding: 16px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid #1976d2;
+        }
+
+        .user-list li span {
+            font-weight: 500;
+            color: #212121;
+        }
+
+        .results-panel,
+        .query-results,
+        .log-panel {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 4px;
+            background: #f5f5f5;
+            border-left: 4px solid #1976d2;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .results-panel.hidden,
+        .query-results.hidden,
+        .log-panel.hidden {
+            display: none;
+        }
+
+        .results-panel h3,
+        .query-results h3 {
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-size: 16px;
+            color: #212121;
+        }
+
+        .results-panel ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .results-panel li {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .results-panel.success {
+            border-left-color: #388e3c;
+            background: #f1f8e9;
+        }
+
+        .results-panel.error {
+            border-left-color: #d32f2f;
+            background: #ffebee;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 12px;
+            margin: 0;
+            font-family: "Courier New", monospace;
+        }
+
+        .toggle-section {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+        }
+
+        .toggle-icon {
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }
+
+        .toggle-icon.open {
+            transform: rotate(180deg);
+        }
+
+        .collapsible-content {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .collapsible-content.show {
+            display: block;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: #757575;
+            margin-top: 8px;
+            margin-bottom: 8px;
+            font-style: italic;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-locked {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #1976d2;
+        }
+
+        .section-divider {
+            height: 1px;
+            background: #e0e0e0;
+            margin: 24px 0;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <div class="page-header">
+            <h1 class="page-title">User Management System v2</h1>
+            <p class="page-subtitle">Create, manage, and configure user accounts and shared databases</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Create Users</h2>
+            </div>
+            <div class="card-content">
+                <h3 style="font-weight: 500;">Option 1: Manual Entry</h3>
+                <div class="form-row" style="margin-top: 16px;">
+                    <div class="form-group">
+                        <input type="text" id="username" placeholder="Username" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="password" placeholder="Password" autocomplete="off">
+                    </div>
+                </div>
+                <div class="button-group" style="margin-top: 0;">
+                    <button class="btn-primary" id="add-btn">Add to List</button>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <h3 style="font-weight: 500;">Option 2: Upload JSON File</h3>
+                <p class="info-text">Format: {"username1": "password1", "username2": "password2"}</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <input type="file" id="file-upload" accept=".json">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-start;">
+                        <button class="btn-success" id="upload-execute-btn" style="width: 100%;">Upload & Create Users</button>
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <h3 style="font-weight: 500;">Users to Create (Manual List)</h3>
+                <ul id="user-list" class="user-list"></ul>
+                <div class="button-group">
+                    <button class="btn-success" id="execute-btn">Execute User Creation</button>
+                </div>
+                <div id="results" class="results-panel hidden"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Current Users</h2>
+            </div>
+            <div class="card-content">
+                <div class="button-group">
+                    <button class="btn-danger" id="delete-selected-btn">Delete Selected</button>
+                    <button class="btn-info" id="export-csv-btn">Export CSV</button>
+                </div>
+                <table id="users-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"><input type="checkbox" id="select-all"></th>
+                            <th>Username</th>
+                            <th>Password</th>
+                            <th>DB Size</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Shared Database Management</h2>
+            </div>
+            <div class="card-content">
+                <h3 style="font-weight: 500;">Create New Shared DB</h3>
+                <div class="form-row" style="margin-top: 16px;">
+                    <div class="form-group">
+                        <input type="text" id="new-db-name" placeholder="Enter database name">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-end;">
+                        <button class="btn-success" id="create-db-btn" style="width: 100%;">Create Database</button>
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+                
+                <h3 style="font-weight: 500;">Manage Existing Shared DB</h3>
+                <div class="form-group" style="margin-top: 16px;">
+                    <label class="form-label">Select Database</label>
+                    <select id="shared-db-select">
+                        <option value="">Select Shared Database</option>
+                    </select>
+                </div>
+
+                <div id="db-access-panel" class="hidden">
+                    <div class="section-divider"></div>
+                    <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 16px; color: #212121;">Manage Access</h3>
+                    <div id="user-access-list"></div>
+
+                    <div class="section-divider"></div>
+
+                    <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 16px; color: #212121;">Execute Query</h3>
+                    <div class="form-group">
+                        <label class="form-label">SQL Query</label>
+                        <textarea id="db-query" placeholder="SELECT * FROM ..."></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn-primary" id="execute-query-btn">Execute Query</button>
+                    </div>
+                    <div id="query-results" class="query-results hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Configuration</h2>
+            </div>
+            <div class="card-content">
+                <div class="form-group">
+                    <label class="form-label">Set MariaDB Bind-Address</label>
+                    <p class="info-text">Set the IP range MariaDB listens on. Leave empty to allow all (0.0.0.0).</p>
+                    <input type="text" id="ip-range" placeholder="e.g., 127.0.0.1 or 10.16.1.71">
+                </div>
+                <div class="button-group">
+                    <button class="btn-warning" id="set-ip-btn">Set IP Range</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="toggle-section" onclick="toggleLogs()">
+                    <span class="toggle-icon">▼</span>
+                    <span>Action Log</span>
+                </h2>
+            </div>
+            <div id="log-panel" class="log-panel collapsible-content hidden"></div>
+        </div>
+    </div>
+
+    <div id="user-data" style="display:none;" data-users='{{ (user_details | default([])) | tojson | safe }}'></div>
+
+    <script>
+        let usersToCreate = [];
+        let userDetails = JSON.parse(document.getElementById('user-data').getAttribute('data-users'));
+
+        function renderUserList() {
+            const list = document.getElementById('user-list');
+            list.innerHTML = '';
+            usersToCreate.forEach((user, idx) => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span>${user.username}</span> <button class="btn-danger btn-small" onclick="removeFromList(${idx})">Remove</button>`;
+                list.appendChild(li);
+            });
+        }
+
+        function renderUsersTable() {
+            const tbody = document.getElementById('users-tbody');
+            tbody.innerHTML = '';
+            userDetails.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.className = user.locked ? 'locked' : '';
+                const statusBadge = user.locked 
+                    ? '<span class="status-badge status-locked">🔒 Locked</span>'
+                    : '<span class="status-badge status-active">✓ Active</span>';
+                tr.innerHTML = `
+                    <td><input type="checkbox" class="user-checkbox" value="${user.username}"></td>
+                    <td>${user.username}</td>
+                    <td><code style="font-size: 12px;">${user.password}</code></td>
+                    <td>${user.db_size}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <div class="button-group" style="margin: 0; gap: 4px;">
+                            <button class="btn-warning btn-small" onclick="resetPassword('${user.username}')">Reset</button>
+                            <button class="btn-info btn-small" onclick="toggleLock('${user.username}', '${user.locked ? 'unlock' : 'lock'}')">${user.locked ? 'Unlock' : 'Lock'}</button>
+                            <button class="btn-danger btn-small" onclick="deleteUser('${user.username}')">Delete</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function removeFromList(idx) {
+            usersToCreate.splice(idx, 1);
+            renderUserList();
+        }
+
+        async function apiCall(endpoint, body, isFormData = false) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.classList.remove('hidden', 'success', 'error');
+            resultsDiv.innerHTML = '<p>Processing...</p>';
+
+            try {
+                const options = {
+                    method: 'POST',
+                    body: isFormData ? body : JSON.stringify(body)
+                };
+                if (!isFormData) {
+                    options.headers = { 'Content-Type': 'application/json' };
+                }
+
+                const response = await fetch(endpoint, options);
+                const data = await response.json();
+
+                if (response.ok && (data.status === 'success' || data.results)) {
+                    resultsDiv.classList.add('success');
+                    let html = `<h3>${isFormData ? 'Upload Results' : 'Action Results'}</h3><ul>`;
+                    
+                    if(data.message) {
+                         html += `<li><strong>${data.message}</strong></li>`;
+                    }
+                    
+                    if (data.results) {
+                        data.results.forEach(result => {
+                            let msg = result.message || `${result.username}: ${result.status}`;
+                            html += `<li>${msg}</li>`;
+                        });
+                    }
+                    html += '</ul>';
+                    resultsDiv.innerHTML = html;
+
+                    if (data.user_details) {
+                        userDetails = data.user_details;
+                        renderUsersTable();
+                    }
+                    if (data.shared_dbs) {
+                        loadSharedDbs(data.shared_dbs);
+                    }
+                    if(endpoint === '/add_users') {
+                        usersToCreate = [];
+                        renderUserList();
+                    }
+                    if (endpoint === '/upload_users_file') {
+                        document.getElementById('file-upload').value = '';
+                    }
+
+                } else {
+                    throw new Error(data.message || 'Unknown error');
+                }
+            } catch (error) {
+                resultsDiv.classList.add('error');
+                resultsDiv.innerHTML = `<h3>Error</h3><p>${error.message}</p>`;
+                console.error('Error:', error);
+            }
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`Delete user ${username}? This is irreversible.`)) return;
+            apiCall('/delete_user', { username });
+        }
+
+        async function resetPassword(username) {
+            const password = prompt(`New password for ${username}:`);
+            if (!password) return;
+            apiCall('/reset_password', { username, password });
+        }
+
+        async function toggleLock(username, action) {
+            apiCall('/toggle_lock', { username, action });
+        }
+
+        document.getElementById('add-btn').addEventListener('click', () => {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            if (username && password) {
+                usersToCreate.push({ username, password });
+                renderUserList();
+                document.getElementById('username').value = '';
+                document.getElementById('password').value = '';
+            } else {
+                alert('Please provide both username and password.');
+            }
+        });
+
+        document.getElementById('upload-execute-btn').addEventListener('click', () => {
+            const fileInput = document.getElementById('file-upload');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file first.');
+                return;
+            }
+            if (file.size > 1048576) {
+                alert('File too large. Maximum size is 1MB.');
+                return;
+            }
+            if (!file.name.endsWith('.json')) {
+                alert('Please upload a JSON file (.json)');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    // Client-side validation
+                    const content = e.target.result;
+                    const jsonData = JSON.parse(content);
+                    
+                    if (typeof jsonData !== 'object' || Array.isArray(jsonData)) {
+                        throw new Error('Invalid JSON structure. Expected format: {"username": "password", ...}');
+                    }
+                    
+                    let invalidUsernames = [];
+                    for (const username in jsonData) {
+                        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+                            invalidUsernames.push(username);
+                        }
+                    }
+                    if (invalidUsernames.length > 0) {
+                        throw new Error(`Invalid username format (only alphanumeric and underscore allowed): ${invalidUsernames.join(', ')}`);
+                    }
+                    
+                    // If valid, send to server
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    apiCall('/upload_users_file', formData, true);
+
+                } catch (error) {
+                    const resultsDiv = document.getElementById('results');
+                    resultsDiv.classList.remove('hidden');
+                    resultsDiv.classList.add('error');
+                    resultsDiv.innerHTML = `<h3>Upload Error</h3><p>${error.message}</p>`;
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('execute-btn').addEventListener('click', () => {
+            if (usersToCreate.length === 0) return alert('No users in the manual list to create');
+            apiCall('/add_users', usersToCreate);
+        });
+
+        document.getElementById('select-all').addEventListener('change', (e) => {
+            document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = e.target.checked);
+        });
+
+        document.getElementById('delete-selected-btn').addEventListener('click', async () => {
+            const selected = Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
+            if (selected.length === 0) return alert('No users selected');
+            if (!confirm(`Delete ${selected.length} users? This is irreversible.`)) return;
+            apiCall('/delete_multiple', { usernames: selected });
+        });
+
+        document.getElementById('export-csv-btn').addEventListener('click', () => {
+            window.location.href = '/export_csv';
+        });
+
+        document.getElementById('create-db-btn').addEventListener('click', async () => {
+            const dbName = document.getElementById('new-db-name').value.trim();
+            if (!dbName) return alert('Enter database name');
+            apiCall('/create_shared_db', { db_name: dbName });
+            document.getElementById('new-db-name').value = '';
+        });
+
+        async function loadSharedDbs(dbs) {
+            let dbList = dbs;
+            if (!dbList) {
+                const res = await fetch('/get_shared_dbs');
+                const data = await res.json();
+                dbList = data.shared_dbs;
+            }
+            const select = document.getElementById('shared-db-select');
+            select.innerHTML = '<option value="">Select Shared Database</option>';
+            dbList.forEach(db => {
+                const opt = document.createElement('option');
+                opt.value = db;
+                opt.textContent = db;
+                select.appendChild(opt);
+            });
+        }
+
+        document.getElementById('shared-db-select').addEventListener('change', (e) => {
+            const dbName = e.target.value;
+            const panel = document.getElementById('db-access-panel');
+            if (dbName) {
+                panel.classList.remove('hidden');
+                renderAccessList(dbName);
+            } else {
+                panel.classList.add('hidden');
+            }
+        });
+
+        function renderAccessList(dbName) {
+            const list = document.getElementById('user-access-list');
+            list.innerHTML = '';
+            userDetails.forEach(user => {
+                const div = document.createElement('div');
+                div.style.marginBottom = '12px';
+                div.style.display = 'flex';
+                div.style.gap = '8px';
+                div.style.alignItems = 'center';
+                div.innerHTML = `
+                    <span style="flex: 1; font-weight: 500;">${user.username}</span>
+                    <button class="btn-success btn-small" onclick="grantAccess('${dbName}', '${user.username}')">Grant</button>
+                    <button class="btn-danger btn-small" onclick="revokeAccess('${dbName}', '${user.username}')">Revoke</button>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        async function grantAccess(dbName, username) {
+            apiCall('/grant_access', { db_name: dbName, username });
+        }
+
+        async function revokeAccess(dbName, username) {
+            apiCall('/revoke_access', { db_name: dbName, username });
+        }
+
+        document.getElementById('execute-query-btn').addEventListener('click', async () => {
+            const dbName = document.getElementById('shared-db-select').value;
+            const query = document.getElementById('db-query').value.trim();
+            if (!dbName || !query) return alert('Select database and enter query');
+            
+            const resultsDiv = document.getElementById('query-results');
+            resultsDiv.classList.remove('hidden');
+            resultsDiv.innerHTML = '<p>Running query...</p>';
+
+            const res = await fetch('/query_shared_db', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ db_name: dbName, query })
+            });
+            const data = await res.json();
+            
+            if (data.status === 'success') {
+                resultsDiv.innerHTML = `<h3>Query Results</h3><pre>${data.result || 'Query executed successfully.'}</pre>`;
+            } else {
+                resultsDiv.innerHTML = `<h3>Query Error</h3><pre style="color: #c62828;">${data.message}</pre>`;
+            }
+        });
+
+        document.getElementById('set-ip-btn').addEventListener('click', async () => {
+            const ipRange = document.getElementById('ip-range').value.trim();
+            if (!confirm(`Set bind-address to "${ipRange || '0.0.0.0'}" and restart MariaDB?`)) return;
+            apiCall('/set_ip_range', { ip_range: ipRange });
+        });
+
+        function toggleLogs() {
+            const panel = document.getElementById('log-panel');
+            const icon = document.querySelector('.toggle-icon');
+            panel.classList.toggle('show');
+            icon.classList.toggle('open');
+            if (panel.classList.contains('show')) {
+                loadLogs();
+            }
+        }
+
+        async function loadLogs() {
+            const panel = document.getElementById('log-panel');
+            panel.innerHTML = '<p>Loading logs...</p>';
+            const res = await fetch('/get_logs');
+            const data = await res.json();
+            
+            if (data.logs.length === 0) {
+                panel.innerHTML = '<p style="color: #757575; margin: 0;">No logs yet</p>';
+            } else {
+                let html = '<table style="margin-top: 0;"><tr><th>Time</th><th>Action</th><th>Target</th><th>Result</th></tr>';
+                data.logs.reverse().forEach(log => {
+                    html += `<tr>
+                                <td>${log.timestamp}</td>
+                                <td>${log.action}</td>
+                                <td>${log.username}</td>
+                                <td>${log.result}</td>
+                             </tr>`;
+                });
+                html += '</table>';
+                panel.innerHTML = html;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            renderUsersTable();
+            loadSharedDbs();
+        });
+    </script>
+</body>
+</html>
