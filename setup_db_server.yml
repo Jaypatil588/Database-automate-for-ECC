@@ -14,7 +14,7 @@
     
     # Database Settings
     db_root_password: "TheBetaSantaStore05!"
-    base_ssh_users: ["root"]
+    base_ssh_users: ["root", "j"]
     users_json_path: "./users_to_create.json"
   
   tasks:
@@ -71,54 +71,28 @@
       register: public_key_content
       delegate_to: localhost
 
-    - name: Test SSH password authentication before copying key
-      shell: |
-        /usr/bin/expect << 'EXPECT_EOF'
-        set timeout 10
-        set exit_code 1
-        log_user 0
-        spawn ssh -p {{ initial_ssh_port }} -o StrictHostKeyChecking=no -o ConnectTimeout=5 {{ initial_ssh_user }}@{{ inventory_hostname }} "echo PASSWORD_TEST_SUCCESS"
-        expect {
-          -re "(?i)password" {
-            send "{{ initial_ssh_password }}\r"
-            exp_continue
-          }
-          -re "yes/no" {
-            send "yes\r"
-            exp_continue
-          }
-          -re "PASSWORD_TEST_SUCCESS" {
-            set exit_code 0
-          }
-          -re "Permission denied" {
-            puts "ERROR: Password authentication failed - please verify the password for {{ initial_ssh_user }}@{{ inventory_hostname }}"
-            set exit_code 1
-          }
-          timeout {
-            puts "ERROR: Connection timed out - please verify host is accessible"
-            set exit_code 1
-          }
-          eof {
-            catch wait result
-            if {[lindex $result 3] != 0} {
-              set exit_code [lindex $result 3]
-            }
-          }
-        }
-        exit $exit_code
-        EXPECT_EOF
-      delegate_to: localhost
-      register: password_test_result
-      changed_when: false
-      failed_when: password_test_result.rc != 0
 
-    - name: Copy SSH key to host using password authentication
+    - name: Check if SSH key already works
+      shell: |
+        ssh -i {{ ssh_key_path }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=5 -p {{ initial_ssh_port }} {{ initial_ssh_user }}@{{ inventory_hostname }} 'echo "KEY_WORKS"' 2>&1
+      delegate_to: localhost
+      register: key_check
+      changed_when: false
+      failed_when: false
+
+    - name: Get public key content as string
+      set_fact:
+        public_key_string: "{{ public_key_content.content | b64decode | trim }}"
+      delegate_to: localhost
+
+    - name: Add SSH key to authorized_keys on first login
       shell: |
         /usr/bin/expect << 'EXPECT_EOF'
-        set timeout 60
+        set timeout 30
         set exit_code 1
         log_user 0
-        spawn ssh-copy-id -i {{ ssh_key_path }}.pub -p {{ initial_ssh_port }} -o StrictHostKeyChecking=no {{ initial_ssh_user }}@{{ inventory_hostname }}
+        set pubkey "{{ public_key_string }}"
+        spawn ssh -p {{ initial_ssh_port }} -o StrictHostKeyChecking=no {{ initial_ssh_user }}@{{ inventory_hostname }} "mkdir -p ~/.ssh && echo \"$pubkey\" >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys && echo 'KEY_ADDED'"
         expect {
           -re "(?i)password" {
             send "{{ initial_ssh_password }}\r"
@@ -128,33 +102,10 @@
             send "yes\r"
             exp_continue
           }
-          -re "Number of key.*added:" {
+          -re "KEY_ADDED" {
             set exit_code 0
-            exp_continue
-          }
-          -re "(?i)already exists" {
-            set exit_code 0
-            exp_continue
-          }
-          -re "(?i)skipped.*already exist" {
-            set exit_code 0
-            exp_continue
-          }
-          -re "(?i)WARNING.*skipped" {
-            set exit_code 0
-            exp_continue
-          }
-          -re "Permission denied" {
-            puts "ERROR: Permission denied - password may be incorrect"
-            set exit_code 1
-            exp_continue
-          }
-          -re "ERROR" {
-            set exit_code 1
-            exp_continue
           }
           timeout {
-            puts "ERROR: ssh-copy-id timed out"
             set exit_code 1
           }
           eof {
@@ -170,174 +121,10 @@
         exit $exit_code
         EXPECT_EOF
       delegate_to: localhost
-      register: ssh_key_copy_result
-      changed_when: "'already exists' not in ssh_key_copy_result.stdout | default('') and 'skipped' not in ssh_key_copy_result.stdout | default('') and ssh_key_copy_result.rc == 0"
-      failed_when: ssh_key_copy_result.rc != 0
-      when: password_test_result.rc == 0
-
-    - name: Get public key content as string
-      set_fact:
-        public_key_string: "{{ public_key_content.content | b64decode | trim }}"
-      delegate_to: localhost
-
-    - name: Fix host-side permissions using password authentication
-      shell: |
-        /usr/bin/expect << 'EXPECT_EOF'
-        set timeout 30
-        set exit_code 1
-        log_user 0
-        spawn ssh -p {{ initial_ssh_port }} -o StrictHostKeyChecking=no {{ initial_ssh_user }}@{{ inventory_hostname }} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys 2>/dev/null; echo 'PERMISSIONS_FIXED'"
-        expect {
-          -re "(?i)password" {
-            send "{{ initial_ssh_password }}\r"
-            exp_continue
-          }
-          -re "yes/no" {
-            send "yes\r"
-            exp_continue
-          }
-          -re "PERMISSIONS_FIXED" {
-            set exit_code 0
-          }
-          timeout {
-            set exit_code 1
-          }
-          eof {
-            catch wait result
-            if {[lindex $result 3] != 0} {
-              set exit_code [lindex $result 3]
-            }
-          }
-        }
-        exit $exit_code
-        EXPECT_EOF
-      delegate_to: localhost
-      register: permissions_fix_result
-      changed_when: false
-      failed_when: permissions_fix_result.rc != 0
-      when: ssh_key_copy_result is defined
-
-    - name: Manual key copy fallback if expect script failed
-      shell: |
-        /usr/bin/expect << 'EXPECT_EOF'
-        set timeout 30
-        set exit_code 1
-        log_user 0
-        set pubkey "{{ public_key_string }}"
-        spawn ssh -p {{ initial_ssh_port }} -o StrictHostKeyChecking=no {{ initial_ssh_user }}@{{ inventory_hostname }} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo \"$pubkey\" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo 'KEY_COPIED'"
-        expect {
-          -re "(?i)password" {
-            send "{{ initial_ssh_password }}\r"
-            exp_continue
-          }
-          -re "yes/no" {
-            send "yes\r"
-            exp_continue
-          }
-          -re "KEY_COPIED" {
-            set exit_code 0
-          }
-          timeout {
-            set exit_code 1
-          }
-          eof {
-            catch wait result
-            if {[lindex $result 3] != 0} {
-              set exit_code [lindex $result 3]
-            }
-          }
-        }
-        exit $exit_code
-        EXPECT_EOF
-      delegate_to: localhost
-      register: manual_key_copy_result
-      changed_when: manual_key_copy_result.rc == 0
-      failed_when: manual_key_copy_result.rc != 0
-      when: ssh_key_copy_result.rc != 0
-
-    - name: Verify SSH server allows PubkeyAuthentication
-      shell: |
-        /usr/bin/expect << 'EXPECT_EOF'
-        set timeout 30
-        set exit_code 1
-        log_user 0
-        spawn ssh -p {{ initial_ssh_port }} -o StrictHostKeyChecking=no {{ initial_ssh_user }}@{{ inventory_hostname }} "grep -E '^PubkeyAuthentication|^#PubkeyAuthentication' /etc/ssh/sshd_config | tail -1"
-        expect {
-          -re "(?i)password" {
-            send "{{ initial_ssh_password }}\r"
-            exp_continue
-          }
-          -re "yes/no" {
-            send "yes\r"
-            exp_continue
-          }
-          -re "PubkeyAuthentication yes" {
-            set exit_code 0
-          }
-          -re "PubkeyAuthentication no" {
-            set exit_code 1
-          }
-          timeout {
-            set exit_code 1
-          }
-          eof {
-            catch wait result
-            if {[lindex $result 3] != 0} {
-              set exit_code [lindex $result 3]
-            }
-          }
-        }
-        exit $exit_code
-        EXPECT_EOF
-      delegate_to: localhost
-      register: pubkey_auth_check
-      changed_when: false
+      register: key_add_result
+      changed_when: key_add_result.rc == 0
       failed_when: false
-
-    - name: Enable PubkeyAuthentication if disabled
-      shell: |
-        /usr/bin/expect << 'EXPECT_EOF'
-        set timeout 30
-        set exit_code 1
-        log_user 0
-        spawn ssh -p {{ initial_ssh_port }} -o StrictHostKeyChecking=no {{ initial_ssh_user }}@{{ inventory_hostname }} "sed -i 's/^#PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && sed -i 's/^PubkeyAuthentication no/PubkeyAuthentication yes/' /etc/ssh/sshd_config && systemctl restart sshd && echo 'SSHD_RESTARTED'"
-        expect {
-          -re "(?i)password" {
-            send "{{ initial_ssh_password }}\r"
-            exp_continue
-          }
-          -re "yes/no" {
-            send "yes\r"
-            exp_continue
-          }
-          -re "SSHD_RESTARTED" {
-            set exit_code 0
-          }
-          timeout {
-            set exit_code 1
-          }
-          eof {
-            catch wait result
-            if {[lindex $result 3] != 0} {
-              set exit_code [lindex $result 3]
-            }
-          }
-        }
-        exit $exit_code
-        EXPECT_EOF
-      delegate_to: localhost
-      register: pubkey_auth_enable
-      changed_when: pubkey_auth_enable.rc == 0
-      failed_when: false
-      when: pubkey_auth_check.rc != 0
-
-    - name: Test SSH key connection before proceeding
-      shell: |
-        ssh -i {{ ssh_key_path }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -p {{ initial_ssh_port }} {{ initial_ssh_user }}@{{ inventory_hostname }} 'echo "SSH_KEY_CONNECTION_SUCCESS"'
-      delegate_to: localhost
-      register: ssh_key_test
-      changed_when: false
-      failed_when: ssh_key_test.rc != 0 or 'SSH_KEY_CONNECTION_SUCCESS' not in ssh_key_test.stdout | default('')
+      when: "'KEY_WORKS' not in key_check.stdout | default('')"
 
     - name: Get absolute path for SSH private key
       shell: readlink -f {{ ssh_key_path }} || echo {{ ssh_key_path }}
@@ -362,14 +149,6 @@
         base_ssh_users: "{{ base_ssh_users }}"
         users_json_path: "{{ users_json_path }}"
 
-    - name: Ping check to verify connection
-      shell: |
-        ssh -i {{ ssh_key_abs_path.stdout }} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -p {{ initial_ssh_port }} {{ initial_ssh_user }}@{{ inventory_hostname }} 'echo "pong"'
-      delegate_to: localhost
-      register: ping_result
-      changed_when: false
-      failed_when: ping_result.rc != 0 or 'pong' not in ping_result.stdout | default('')
-
 - name: Configure Rocky Linux VM as Database Server
   hosts: myhosts
   become: yes
@@ -389,22 +168,13 @@
     - name: Show package cache update status
       debug:
         msg: "Package cache {{ 'updated' if dnf_cache_result.changed else 'already up to date' }}"
-    
-    - name: Update all packages (this may take 10-30 minutes)
-      shell: dnf update -y
-      register: dnf_update_result
-      failed_when: false  # Don't fail if update times out
-
-    - name: Show package update summary
-      debug:
-        msg: "Package update task completed. Check output above for details."
 
     - name: Install MariaDB server and client
-      shell: dnf install -y mariadb-server mariadb
+      command: dnf install -y mariadb-server mariadb
       register: mariadb_install_result
 
     - name: Install Python 3 and MySQL client library
-      shell: dnf install -y python3 python3-pip python3-PyMySQL
+      command: dnf install -y python3 python3-pip python3-PyMySQL
       register: python_install_result
 
     - name: Start and enable MariaDB service
@@ -485,15 +255,6 @@
       failed_when: false
       no_log: true
 
-    - name: Set MariaDB root password (method 2 - if method 1 failed)
-      shell: |
-        mysql -e 'SET PASSWORD FOR "root"@"localhost" = PASSWORD("{{ db_root_password }}"); FLUSH PRIVILEGES;'
-      when: root_password_verify.rc != 0
-      register: root_password_retry
-      changed_when: false
-      no_log: true
-      ignore_errors: yes
-
     - name: Enable unix_socket authentication for root (try mysql.global_priv first)
       shell: |
         mysql -u root -p'{{ db_root_password }}' -e "UPDATE mysql.global_priv SET priv=json_set(priv, '$.plugin', 'unix_socket') WHERE User='root' AND Host='localhost'; FLUSH PRIVILEGES;" 2>&1
@@ -503,33 +264,11 @@
       no_log: true
       ignore_errors: yes
 
-    - name: Enable unix_socket authentication for root (fallback to mysql.user if global_priv failed)
-      shell: |
-        mysql -u root -p'{{ db_root_password }}' -e "UPDATE mysql.user SET plugin='unix_socket' WHERE user='root' AND host='localhost'; FLUSH PRIVILEGES;" 2>&1
-      when: 
-        - (root_password_verify.rc == 0 or root_password_retry.changed | default(false))
-        - unix_socket_setup_global.rc != 0
-      register: unix_socket_setup
-      changed_when: false
-      no_log: true
-      ignore_errors: yes
-
     - name: Verify mysql works as root user (unix_socket)
       command: mysql -e "SELECT USER(), @@hostname;" 2>&1
       register: mysql_root_test
       changed_when: false
       failed_when: false
-
-    - name: Remove anonymous users
-      command: mysql -e "DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;"
-      no_log: true
-      changed_when: false
-
-    - name: Remove test database
-      command: mysql -e "DROP DATABASE IF EXISTS test;"
-      no_log: true
-      changed_when: false
-      ignore_errors: yes
 
     - name: Ensure root can only login from localhost
       command: mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host='{{ item }}'; FLUSH PRIVILEGES;"
@@ -593,6 +332,7 @@
       shell: |
         mysql -e "CREATE USER IF NOT EXISTS '{{ item.key }}'@'localhost' IDENTIFIED BY '{{ item.value }}';"
         mysql -e "GRANT ALL PRIVILEGES ON {{ item.key }}.* TO '{{ item.key }}'@'localhost';"
+        mysql -e "FLUSH PRIVILEGES;"
       with_dict: "{{ student_users }}"
       register: user_creation_result
       no_log: true
@@ -610,6 +350,21 @@
       changed_when: false
       no_log: true
 
+    - name: Create .my.cnf file for each student user for automatic authentication
+      blockinfile:
+        path: "/home/{{ item.key }}/.my.cnf"
+        owner: "{{ item.key }}"
+        group: "{{ item.key }}"
+        mode: '0600'
+        create: yes
+        block: |
+          [client]
+          user={{ item.key }}
+          password={{ item.value }}
+          host=localhost
+      with_dict: "{{ student_users }}"
+      no_log: true
+
     - name: Get all student usernames
       set_fact:
         student_usernames: "{{ student_users.keys() | list }}"
@@ -620,16 +375,6 @@
         dest: /etc/ssh/sshd_config.backup.ansible
         remote_src: yes
       changed_when: false
-
-    - name: Configure SSH AllowUsers
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^AllowUsers'
-        line: "AllowUsers {{ (base_ssh_users + student_usernames) | join(' ') }}"
-        validate: 'sshd -t -f %s'
-        backup: yes
-      register: ssh_config_result
-      notify: restart sshd
 
     - name: Verify SSH config syntax
       command: sshd -t -f /etc/ssh/sshd_config
