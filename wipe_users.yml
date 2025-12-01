@@ -1,0 +1,102 @@
+---
+# Wipe all student users from the VM
+# This removes system users, MariaDB users, databases, and home directories
+- name: Configure SSH connection
+  hosts: myhosts
+  connection: local
+  gather_facts: no
+  vars:
+    ssh_user: "j"
+    ssh_password: "root"
+  
+  tasks:
+    - name: Get home directory
+      shell: echo $HOME
+      register: home_dir
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Set SSH key path
+      set_fact:
+        ssh_key_path: "{{ home_dir.stdout }}/.ssh/id_rsa_ansible_{{ inventory_hostname | replace('.', '_') }}"
+      delegate_to: localhost
+
+    - name: Get absolute path for SSH private key
+      shell: readlink -f {{ ssh_key_path }} || echo {{ ssh_key_path }}
+      register: ssh_key_abs_path
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Add host with SSH key configuration
+      add_host:
+        name: "{{ inventory_hostname }}"
+        ansible_host: "{{ inventory_hostname }}"
+        ansible_user: "{{ ssh_user }}"
+        ansible_ssh_private_key_file: "{{ ssh_key_abs_path.stdout }}"
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes'
+        ansible_become: yes
+        ansible_become_method: sudo
+        ansible_become_password: "{{ ssh_password }}"
+        groups: myhosts
+      changed_when: false
+
+- name: Wipe all student users
+  hosts: myhosts
+  become: yes
+  vars:
+    users_json_path: "./users_to_create.json"
+  
+  tasks:
+    - name: Read user data from JSON file
+      set_fact:
+        student_users: "{{ lookup('file', users_json_path) | from_json }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Remove MariaDB databases (excluding SSH users)
+      command: mysql -e "DROP DATABASE IF EXISTS {{ item.key }};"
+      with_dict: "{{ student_users }}"
+      when: item.key not in ['j', 'root']
+      register: db_drop_result
+      changed_when: "'already exists' not in db_drop_result.stdout | default('')"
+      failed_when: false
+      no_log: true
+
+    - name: Remove MariaDB users (excluding SSH users)
+      command: mysql -e "DROP USER IF EXISTS '{{ item.key }}'@'localhost'; FLUSH PRIVILEGES;"
+      with_dict: "{{ student_users }}"
+      when: item.key not in ['j', 'root']
+      register: user_drop_result
+      changed_when: "'already exists' not in user_drop_result.stdout | default('')"
+      failed_when: false
+      no_log: true
+
+    - name: Remove system users and their home directories (excluding SSH users)
+      ansible.builtin.user:
+        name: "{{ item.key }}"
+        state: absent
+        remove: yes
+        force: yes
+      with_dict: "{{ student_users }}"
+      when: item.key not in ['j', 'root']
+      register: user_remove_result
+
+    - name: Remove .my.cnf files if they exist (excluding SSH users)
+      file:
+        path: "/home/{{ item.key }}/.my.cnf"
+        state: absent
+      with_dict: "{{ student_users }}"
+      when: item.key not in ['j', 'root']
+      failed_when: false
+
+    - name: Display wipe summary
+      debug:
+        msg: |
+          ========================================
+          User Wipe Complete!
+          ========================================
+          Removed {{ student_users.keys() | list | length }} users
+          Removed {{ student_users.keys() | list | length }} databases
+          Removed {{ student_users.keys() | list | length }} MariaDB users
+          ========================================
+
