@@ -175,8 +175,6 @@
     - name: Include create_users role
       include_role:
         name: create_users
-      vars:
-        users_json_path: "{{ users_json_path }}"
 
     - name: Display completion message
       debug:
