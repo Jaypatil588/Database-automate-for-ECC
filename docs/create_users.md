@@ -1,10 +1,10 @@
 # Create Users (`create_users.yml`)
 
 ## How to run this file
-- From the `user_creation_tool` directory:
-  ```bash
-  ansible-playbook -i inventory_test.ini create_users.yml
-  ```
+-# Usage:
+#   ansible-playbook -i inventory_test.ini create_users.yml
+#   ansible-playbook -i inventory_test.ini create_users.yml -e users_json_path="./custom_users.json"
+
 - To use a different SSH user/password or JSON file:
   ```bash
   ansible-playbook -i inventory_test.ini create_users.yml \
