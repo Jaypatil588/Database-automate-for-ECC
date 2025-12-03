@@ -1,0 +1,84 @@
+---
+# Role: create_users
+# Purpose: Create system users, MariaDB databases, and MariaDB users
+# This role can be run independently or as part of the main setup script
+
+- name: Read user data from JSON file
+  set_fact:
+    student_users: "{{ lookup('file', users_json_path) | from_json }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Create system users
+  ansible.builtin.user:
+    name: "{{ item.key }}"
+    password: "{{ item.value | password_hash('sha512') }}"
+    shell: /bin/bash
+    create_home: yes
+    state: present
+  with_dict: "{{ student_users }}"
+  ignore_errors: yes
+
+- name: Create database and DB user
+  command: mysql -e "CREATE DATABASE IF NOT EXISTS {{ item.key }};"
+  with_dict: "{{ student_users }}"
+  register: db_creation_result
+  changed_when: "'already exists' not in db_creation_result.stdout | default('')"
+
+- name: Verify databases were created
+  command: mysql -e "SHOW DATABASES LIKE '{{ item.key }}';"
+  register: db_verify
+  changed_when: false
+  failed_when: false
+  no_log: true
+  with_dict: "{{ student_users }}"
+
+- name: Create MariaDB users with localhost access only
+  shell: |
+    mysql -e "CREATE USER IF NOT EXISTS '{{ item.key }}'@'localhost' IDENTIFIED BY '{{ item.value }}';"
+    mysql -e "GRANT ALL PRIVILEGES ON {{ item.key }}.* TO '{{ item.key }}'@'localhost';"
+    mysql -e "FLUSH PRIVILEGES;"
+  with_dict: "{{ student_users }}"
+  register: user_creation_result
+  no_log: true
+
+- name: Verify MariaDB users were created
+  command: mysql -e "SELECT user, host FROM mysql.user WHERE user='{{ item.key }}' AND host='localhost';"
+  register: user_verify
+  changed_when: false
+  failed_when: false
+  no_log: true
+  with_dict: "{{ student_users }}"
+
+- name: Flush MySQL privileges
+  command: mysql -e "FLUSH PRIVILEGES;"
+  changed_when: false
+  no_log: true
+
+- name: Create .my.cnf file for each student user for automatic authentication
+  blockinfile:
+    path: "/home/{{ item.key }}/.my.cnf"
+    owner: "{{ item.key }}"
+    group: "{{ item.key }}"
+    mode: '0600'
+    create: yes
+    block: |
+      [client]
+      user={{ item.key }}
+      password={{ item.value }}
+      host=localhost
+  with_dict: "{{ student_users }}"
+  no_log: true
+
+- name: Display user creation summary
+  debug:
+    msg: |
+      ========================================
+      User Creation Complete!
+      ========================================
+      System Users Created: {{ student_users.keys() | list | length }}
+      Databases Created: {{ student_users.keys() | list | length }}
+      MariaDB Users Created: {{ student_users.keys() | list | length }}
+      ========================================
+
+

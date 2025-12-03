@@ -1,0 +1,8 @@
+---
+# Default variables for create_users role
+# These can be overridden when calling the role
+
+# Path to JSON file containing users to create
+users_json_path: "./users_to_create.json"
+
+
