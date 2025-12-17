@@ -346,14 +346,19 @@ def delete_user():
     
     try:
         subprocess.run(['userdel', '-r', username], check=True, capture_output=True)
-        sql = f"DROP DATABASE IF EXISTS `{username}`; DROP USER IF EXISTS '{username}'@'localhost'; FLUSH PRIVILEGES;"
-        subprocess.run(['mysql', '-e', sql], check=True, capture_output=True)
+        # Fixed: Removed backticks to prevent MySQL syntax error
+        sql = f"DROP DATABASE IF EXISTS {username}; DROP USER IF EXISTS '{username}'@'localhost'; FLUSH PRIVILEGES;"
+        subprocess.run(['mysql', '-e', sql], check=True, capture_output=True, text=True)
         update_ssh_config()
         log_action('delete_user', username, 'success')
         return jsonify({"status": "success", "message": f"User {username} deleted", "user_details": get_user_details()})
+    except subprocess.CalledProcessError as e:
+        error_detail = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
+        log_action('delete_user', username, f'failed: {error_detail}')
+        return jsonify({"status": "error", "message": f"Operation failed: {error_detail}"}), 500
     except Exception as e:
-        log_action('delete_user', username, 'failed')
-        return jsonify({"status": "error", "message": "Operation failed"}), 500
+        log_action('delete_user', username, f'failed: {str(e)}')
+        return jsonify({"status": "error", "message": f"Operation failed: {str(e)}"}), 500
 
 @app.route('/delete_multiple', methods=['POST'])
 @root_required
@@ -369,13 +374,18 @@ def delete_multiple():
             
         try:
             subprocess.run(['userdel', '-r', username], check=True, capture_output=True)
-            sql = f"DROP DATABASE IF EXISTS `{username}`; DROP USER IF EXISTS '{username}'@'localhost'; FLUSH PRIVILEGES;"
-            subprocess.run(['mysql', '-e', sql], check=True, capture_output=True)
+            # Fixed: Removed backticks to prevent MySQL syntax error
+            sql = f"DROP DATABASE IF EXISTS {username}; DROP USER IF EXISTS '{username}'@'localhost'; FLUSH PRIVILEGES;"
+            subprocess.run(['mysql', '-e', sql], check=True, capture_output=True, text=True)
             log_action('delete_user', username, 'success')
             results.append({"username": username, "status": "success"})
+        except subprocess.CalledProcessError as e:
+            error_detail = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
+            log_action('delete_user', username, f'failed: {error_detail}')
+            results.append({"username": username, "status": "error", "message": f"Failed: {error_detail}"})
         except Exception as e:
-            log_action('delete_user', username, 'failed')
-            results.append({"username": username, "status": "error", "message": "Operation failed"})
+            log_action('delete_user', username, f'failed: {str(e)}')
+            results.append({"username": username, "status": "error", "message": f"Failed: {str(e)}"})
     
     update_ssh_config()
     return jsonify({"results": results, "user_details": get_user_details()})
